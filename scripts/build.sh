@@ -20,7 +20,7 @@ touch -m -d '1 Jan 2021 12:00' "$EM_CONFIG"
 echo "building cpython"
 make -C cpython
 
-echo "building pyodide.js + pyodide.asm.mjs/.wasm (no packages)"
-make dist/pyodide.js
+echo "building pyodide.js + pyodide.asm.mjs/.wasm + pyodide.d.ts (no packages)"
+make dist/pyodide.js dist/pyodide.d.ts
 
 echo "BUILD DONE"

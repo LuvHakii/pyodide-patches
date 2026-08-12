@@ -74,7 +74,7 @@ jobs:
         run: |
           source scripts/common.sh
           mkdir -p release
-          cp $SRC/dist/pyodide.mjs $SRC/dist/pyodide.asm.mjs $SRC/dist/pyodide.asm.wasm release/
+          cp $SRC/dist/pyodide.mjs $SRC/dist/pyodide.asm.mjs $SRC/dist/pyodide.asm.wasm $SRC/dist/pyodide.d.ts release/
           PYODIDE_COMMIT=$(git -C $SRC rev-parse HEAD)
           PATCHES=$(basename -a $REPO/patches/*.patch | jq -R . | jq -s .)
           printf '{"pyodideRev":"%s","pyodideBaseCommit":"%s","patches":%s}' \
