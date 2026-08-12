@@ -60,7 +60,8 @@ jobs:
 
       - name: install python
         run: |
-          uv venv --seed --python 3.13 $ROOT/.venv
+          PYVERSION=$(git -C $ROOT/pyodide grep 'export PYVERSION ?=' Makefile.envs | cut -d' ' -f4)
+          uv venv --seed --python "$PYVERSION" $ROOT/.venv
           echo "VIRTUAL_ENV=$ROOT/.venv" >> "$GITHUB_ENV"
           echo "$ROOT/.venv/bin" >> "$GITHUB_PATH"
           $ROOT/.venv/bin/python -m pip install -r $ROOT/pyodide/requirements.txt
