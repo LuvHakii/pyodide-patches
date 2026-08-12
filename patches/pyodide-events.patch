@@ -1,0 +1,133 @@
+diff --git a/src/js/load-package.ts b/src/js/load-package.ts
+index 993be8c6..101fbe19 100644
+--- a/src/js/load-package.ts
++++ b/src/js/load-package.ts
+@@ -257,28 +257,30 @@ export class PackageManager {
+       // If uri is from the default channel, we assume it was added as a
+       // dependency, which was previously overridden.
+       if (loadedChannel === channel || channel === this.defaultChannel) {
+-        this.logStdout(`${name} already loaded from ${loadedChannel}`);
++        this.emitEvent("pkg:already_loaded", {
++          pkg: name,
++          channel: loadedChannel,
++        });
+       } else {
+-        this.logStderr(
+-          `URI mismatch, attempting to load package ${name} from ${channel} ` +
+-            `while it is already loaded from ${loadedChannel}. To override a dependency, ` +
+-            `load the custom package first.`,
+-        );
++        this.emitEvent("pkg:url_mismatch", {
++          pkg: name,
++          prevChannel: loadedChannel,
++          channel,
++        });
+       }
+     }
+ 
+     if (toLoad.size === 0) {
+-      this.logStdout("No new packages to load");
++      this.emitEvent("pkgs:up_to_date");
+       return [];
+     }
+ 
+-    const packageNames = Array.from(toLoad.values(), ({ name }) => name)
+-      .sort()
+-      .join(", ");
+     const failed = new Map<string, Error>();
+     const releaseLock = await this._lock();
+     try {
+-      this.logStdout(`Loading ${packageNames}`);
++      this.emitEvent("pkgs:load", {
++        pkgs: Array.from(toLoad.values(), ({ name }) => name).sort(),
++      });
+       for (const [_, pkg] of toLoad) {
+         if (this.getLoadedPackageChannel(pkg.name)) {
+           // Handle the race condition where the package was loaded between when
+@@ -301,19 +303,19 @@ export class PackageManager {
+       );
+ 
+       if (loadedPackageData.size > 0) {
+-        const successNames = Array.from(loadedPackageData, (pkg) => pkg.name)
+-          .sort()
+-          .join(", ");
+-        this.logStdout(`Loaded ${successNames}`);
++        this.emitEvent("pkgs:loaded", {
++          pkgs: Array.from(loadedPackageData, ({ name }) => name).sort(),
++        });
+       }
+ 
+       if (failed.size > 0) {
+-        const failedNames = Array.from(failed.keys()).sort().join(", ");
+-        this.logStdout(`Failed to load ${failedNames}`);
+-        for (const [name, err] of failed) {
+-          this.logStderr(`The following error occurred while loading ${name}:`);
+-          this.logStderr(err.message);
+-        }
++        this.emitEvent("pkgs:failed", {
++          pkgs: Array.from(failed.keys()).sort(),
++          errors: Array.from(failed, ([name, err]) => ({
++            name,
++            message: err.message,
++          })),
++        });
+       }
+ 
+       // We have to invalidate Python's import caches, or it won't
+@@ -392,9 +394,10 @@ export class PackageManager {
+       const channel = name;
+ 
+       if (toLoad.has(pkgname) && toLoad.get(pkgname)!.channel !== channel) {
+-        this.logStderr(
+-          `Loading same package ${pkgname} from ${channel} and ${toLoad.get(pkgname)!.channel}`,
+-        );
++        this.emitEvent("pkg:channel_conflict", {
++          pkg: pkgname,
++          channels: [channel, toLoad.get(pkgname)!.channel],
++        });
+         continue;
+       }
+       toLoad.set(pkgname, {
+@@ -474,15 +477,17 @@ export class PackageManager {
+         throw e;
+       }
+     }
+-    this.logStdout(
+-      `Didn't find package ${fileName} locally, attempting to load from ${this.cdnURL}`,
+-    );
++    this.emitEvent("pkg:remote_load_attempt", {
++      pkg: pkg.name,
++      fileName: fileName,
++    });
+     // If we are RUNTIME_ENV.IN_NODE, download the package from the cdn, then stash it into
+     // the node_modules directory for future use.
+     let binary = await loadBinaryFile(this.cdnURL + fileName);
+-    this.logStdout(
+-      `Package ${fileName} loaded from ${this.cdnURL}, caching the wheel in node_modules for future use.`,
+-    );
++    this.emitEvent("pkg:remote_load_success", {
++      pkg: pkg.name,
++      fileName: fileName,
++    });
+     await nodeFsPromisesMod.writeFile(uri, binary);
+     return binary;
+   }
+@@ -636,6 +641,18 @@ export class PackageManager {
+   public logStderr(message: string) {
+     this.stderr(message);
+   }
++
++  public emitEvent(type: string, ctx?: any) {
++    if ("dispatchEvent" in globalThis)
++      dispatchEvent(
++        new CustomEvent("pyodide:pm", {
++          detail: {
++            type,
++            ...ctx,
++          },
++        }),
++      );
++  }
+ }
+ 
+ function filterPackageData({
