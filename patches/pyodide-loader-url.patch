@@ -1,22 +1,96 @@
+diff --git a/src/js/compat.ts b/src/js/compat.ts
+index 2997d6ce..1cc2de79 100644
+--- a/src/js/compat.ts
++++ b/src/js/compat.ts
+@@ -1,4 +1,3 @@
+-import ErrorStackParser from "./vendor/stackframe/error-stack-parser";
+ import { RUNTIME_ENV } from "./environments";
+ import { Lockfile } from "./types";
+ let nodeUrlMod: typeof import("node:url");
+@@ -258,45 +257,6 @@ export async function loadLockFile(lockFileURL: string): Promise<Lockfile> {
+   }
+ }
+ 
+-/**
+- * Calculate the directory name of the current module.
+- * This is used to guess the indexURL when it is not provided.
+- */
+-export async function calculateDirname(): Promise<string> {
+-  if (RUNTIME_ENV.IN_NODE_COMMONJS) {
+-    return __dirname;
+-  }
+-
+-  let err: Error;
+-  try {
+-    throw new Error();
+-  } catch (e) {
+-    err = e as Error;
+-  }
+-  let fileName = ErrorStackParser.parse(err)[0].fileName!;
+-
+-  if (RUNTIME_ENV.IN_NODE && !fileName.startsWith("file://")) {
+-    fileName = `file://${fileName}`; // Error stack filenames are not starting with `file://` in `Bun`
+-  }
+-
+-  if (RUNTIME_ENV.IN_NODE_ESM) {
+-    const nodePath = await import("node:path");
+-    const nodeUrl = await import("node:url");
+-
+-    // FIXME: We would like to use import.meta.url here,
+-    // but mocha seems to mess with compiling typescript files to ES6.
+-    return nodeUrl.fileURLToPath(nodePath.dirname(fileName));
+-  }
+-
+-  const indexOfLastSlash = fileName.lastIndexOf(pathSep);
+-  if (indexOfLastSlash === -1) {
+-    throw new Error(
+-      "Could not extract indexURL path from pyodide module location. Please pass the indexURL explicitly to loadPyodide.",
+-    );
+-  }
+-  return fileName.slice(0, indexOfLastSlash);
+-}
+-
+ /**
+  * Ensure that the directory exists before trying to download files into it (Node.js only).
+  * @param dir The directory to ensure exists
 diff --git a/src/js/emscripten-settings.ts b/src/js/emscripten-settings.ts
-index b27fe5e7..dd74b7c0 100644
+index f198f430..1da407b5 100644
 --- a/src/js/emscripten-settings.ts
 +++ b/src/js/emscripten-settings.ts
-@@ -69,8 +69,11 @@ export function createSettings(
+@@ -69,8 +69,13 @@ export function createSettings(
      // library but it failed to find it in the file system. But for us that
      // means dependency resolution has already failed and we want to throw an
      // error anyways.
 -    locateFile: (path: string) => config.indexURL + path,
 -    instantiateWasm: getInstantiateWasmFunc(config.indexURL),
-+    locateFile: (path: string) =>
-+      path === "pyodide.asm.wasm" && config.wasmURL
-+        ? config.wasmURL
-+        : config.indexURL + path,
++    locateFile: (path: string) => {
++      if (path === "pyodide.asm.wasm") {
++        return config.wasmURL;
++      }
++      throw new Error(`Unexpected call to locateFile("${path}")`);
++    },
 +    instantiateWasm: getInstantiateWasmFunc(config),
    };
    return settings;
  }
-@@ -192,7 +195,7 @@ function getFileSystemInitializationFuncs(
+@@ -179,15 +184,8 @@ function installStdlib(stdlibURL: string): PreRunFunc {
+ function getFileSystemInitializationFuncs(
+   config: PyodideConfigWithDefaults,
+ ): PreRunFunc[] {
+-  let stdLibURL;
+-  if (config.stdLibURL != undefined) {
+-    stdLibURL = config.stdLibURL;
+-  } else {
+-    stdLibURL = config.indexURL + "python_stdlib.zip";
+-  }
+-
+   return [
+-    installStdlib(stdLibURL),
++    installStdlib(config.stdLibURL),
+     createHomeDirectory(config.env.HOME),
+     setEnvironment(config.env),
+     initializeNativeFS,
+@@ -196,7 +194,7 @@ function getFileSystemInitializationFuncs(
  }
  
  function getInstantiateWasmFunc(
@@ -25,45 +99,162 @@ index b27fe5e7..dd74b7c0 100644
  ): EmscriptenSettings["instantiateWasm"] {
    // @ts-ignore
    if (SOURCEMAP || typeof WasmOffsetConverter !== "undefined") {
-@@ -205,7 +208,10 @@ function getInstantiateWasmFunc(
+@@ -209,7 +207,7 @@ function getInstantiateWasmFunc(
      // typeof WasmOffsetConverter !== "undefined" checks for asan.
      return;
    }
 -  const { binary, response } = getBinaryResponse(indexURL + "pyodide.asm.wasm");
-+  const wasmURL = !!config.wasmURL
-+    ? config.wasmURL
-+    : config.indexURL + "pyodide.asm.wasm";
-+  const { binary, response } = getBinaryResponse(wasmURL);
++  const { binary, response } = getBinaryResponse(config.wasmURL);
    const jsvErrorImportPromise = getJsvErrorImport();
    return function (
      imports: { [key: string]: { [key: string]: any } },
 diff --git a/src/js/pyodide.ts b/src/js/pyodide.ts
-index 297380c5..580e4d98 100644
+index 297380c5..8dcf2d41 100644
 --- a/src/js/pyodide.ts
 +++ b/src/js/pyodide.ts
-@@ -109,6 +109,16 @@ export interface PyodideConfig {
-    * Default: ```${indexURL}/python_stdlib.zip```
+@@ -2,7 +2,6 @@
+  * The main bootstrap code for loading pyodide.
+  */
+ import {
+-  calculateDirname,
+   loadScript,
+   initNodeModules,
+   resolvePath,
+@@ -54,29 +53,18 @@ declare const BUILD_ID: string;
+  * The configuration options for loading Pyodide.
+  */
+ export interface PyodideConfig {
+-  /**
+-   * The URL from which Pyodide will load the main Pyodide runtime and
+-   * packages. It is recommended that you leave this unchanged, providing an
+-   * incorrect value can cause broken behavior.
+-   *
+-   * Default: The url that Pyodide is loaded from with the file name
+-   * (``pyodide.js`` or ``pyodide.mjs``) removed.
+-   */
+-  indexURL?: string;
+   /**
+    * The file path where packages will be cached in node. If a package
+    * exists in ``packageCacheDir`` it is loaded from there, otherwise it is
+    * downloaded from the JsDelivr CDN and then cached into ``packageCacheDir``.
+    * Only applies when running in node; ignored in browsers.
+-   *
+-   * Default: same as indexURL
     */
-   stdLibURL?: string;
+   packageCacheDir?: string;
+ 
+   /**
+    * The URL from which Pyodide will load the Pyodide ``pyodide-lock.json`` lock
+    * file. You can produce custom lock files with :py:func:`micropip.freeze`.
+-   * Default: ```${indexURL}/pyodide-lock.json```
++   * Required unless ``lockFileContents`` is provided.
+    */
+   lockFileURL?: string;
+   /**
+@@ -106,9 +94,19 @@ export interface PyodideConfig {
+   /**
+    * The URL from which to load the standard library ``python_stdlib.zip``
+    * file. This URL includes the most of the Python standard library.
+-   * Default: ```${indexURL}/python_stdlib.zip```
++   * Required.
++   */
++  stdLibURL: string;
 +  /**
 +   * The URL from which to load the ``pyodide.asm.mjs`` glue script.
-+   * Default: ```${indexURL}/pyodide.asm.mjs```
-+   */
-+  asmURL?: string;
++   * Required.
+    */
+-  stdLibURL?: string;
++  asmURL: string;
 +  /**
 +   * The URL from which to load the ``pyodide.asm.wasm`` binary.
-+   * Default: ```${indexURL}/pyodide.asm.wasm```
++   * Required.
 +   */
-+  wasmURL?: string;
++  wasmURL: string;
    /**
     * Override the standard input callback. Should ask the user for one line of
     * input. The :js:func:`pyodide.setStdin` function is more flexible and
-@@ -339,7 +349,7 @@ async function loadWasmScript(
+@@ -252,16 +250,16 @@ export type PyodideConfigWithDefaults = Required<PyodideConfig>;
+  * This function fills out all the fields that are not provided by the user and returns a
+  */
+ async function initializeConfiguration(
+-  options: PyodideConfig = {},
++  options: PyodideConfig,
+ ): Promise<PyodideConfigWithDefaults> {
+   await initNodeModules();
+ 
+   if (options.lockFileContents && options.lockFileURL) {
+     throw new Error("Can't pass both lockFileContents and lockFileURL");
+   }
+-
+-  let indexURL = options.indexURL || (await calculateDirname());
+-  indexURL = withTrailingSlash(resolvePath(indexURL)); // A relative indexURL causes havoc.
++  if (!options.lockFileContents && !options.lockFileURL) {
++    throw new Error("Must pass either lockFileContents or lockFileURL");
++  }
+ 
+   options.packageBaseUrl = withTrailingSlash(options.packageBaseUrl);
+   // cdnUrl only for node. withTrailingSlash is a no-op, but just in case to prevent future human errors.
+@@ -271,22 +269,20 @@ async function initializeConfiguration(
+   );
+ 
+   if (!options.lockFileContents) {
+-    const lockFileURL = options.lockFileURL ?? indexURL + "pyodide-lock.json";
++    const lockFileURL = options.lockFileURL!;
+     options.lockFileContents = loadLockFile(lockFileURL);
+     // packageBaseUrl isn't present, try using base location of lockFileUrl. If
+     // lockFileURL is relative, use location as the base URL.
+     options.packageBaseUrl ??= calculateInstallBaseUrl(lockFileURL);
+   }
+ 
+-  options.indexURL = indexURL;
+-
+   if (options.packageCacheDir) {
+     options.packageCacheDir = withTrailingSlash(
+       resolvePath(options.packageCacheDir),
+     );
+   }
+ 
+-  const defaultConfig: PyodideConfig = {
++  const defaultConfig: Partial<PyodideConfig> = {
+     jsglobals: globalThis,
+     stdin: globalThis.prompt ? () => globalThis.prompt() : undefined,
+     args: [],
+@@ -339,8 +335,7 @@ async function loadWasmScript(
      return config.createPyodideModule;
    }
  
 -  const scriptSrc = `${config.indexURL}pyodide.asm.mjs`;
-+  const scriptSrc = config.asmURL || `${config.indexURL}pyodide.asm.mjs`;
-   return (await loadScript(scriptSrc)).default;
+-  return (await loadScript(scriptSrc)).default;
++  return (await loadScript(config.asmURL)).default;
  }
  
+ /**
+@@ -403,7 +398,7 @@ function configureAPI(
+   if (API.version !== version && config.checkAPIVersion) {
+     throw new Error(`\
+ Pyodide version does not match: '${version}' <==> '${API.version}'. \
+-If you updated the Pyodide version, make sure you also updated the 'indexURL' parameter passed to loadPyodide.\
++If you updated the Pyodide version, make sure you also updated the 'asmURL'/'wasmURL' parameters passed to loadPyodide.\
+ `);
+   }
+ 
+@@ -468,6 +463,10 @@ async function finalizeSetup(
+  * @example
+  * async function main() {
+  *   const pyodide = await loadPyodide({
++ *     asmURL: "https://example.com/pyodide.asm.mjs",
++ *     wasmURL: "https://example.com/pyodide.asm.wasm",
++ *     stdLibURL: "https://example.com/python_stdlib.zip",
++ *     lockFileURL: "https://example.com/pyodide-lock.json",
+  *     stdout: (msg) => console.log(`Pyodide: ${msg}`),
+  *   });
+  *   console.log("Loaded Pyodide");
+@@ -475,7 +474,7 @@ async function finalizeSetup(
+  * main();
+  */
+ export async function loadPyodide(
+-  options: PyodideConfig = {},
++  options: PyodideConfig,
+ ): Promise<PyodideAPI> {
+   // Stage 1: Initialize configuration
+   const config = await initializeConfiguration(options);
