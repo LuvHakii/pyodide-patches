@@ -6,7 +6,7 @@ on:
       pyodide_rev:
         description: "pyodide/pyodide tag/branch/commit to build against"
         type: string
-        default: 314.0.3
+        default: 314.0.4
       release:
         description: "Publish release <yyyymmdd-hhmm> UTC. Off = dry run, artifact only, 7 days."
         type: boolean
