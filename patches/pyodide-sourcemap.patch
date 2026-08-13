@@ -1,0 +1,12 @@
+diff --git a/src/js/esbuild.config.shared.mjs b/src/js/esbuild.config.shared.mjs
+--- a/src/js/esbuild.config.shared.mjs
++++ b/src/js/esbuild.config.shared.mjs
+@@ -59,7 +59,7 @@
+   define: { ...DEFINES, ...Object.fromEntries(toDefines(extraDefines ?? {})) },
+   minify: !DEBUG,
+   keepNames: true,
+-  sourcemap: true,
++  sourcemap: false,
+   bundle: true,
+   format,
+   globalName,
