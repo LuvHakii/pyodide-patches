@@ -7,7 +7,7 @@ SRC=$REPO/pyodide
 want="$(git -C $REPO rev-parse :pyodide) $(cat $REPO/patches/*.patch | git hash-object --stdin)"
 if [ "$(cat $SRC/.patched 2>/dev/null)" != "$want" ]; then
   if [ -e $SRC/.git ]; then git -C $SRC reset -q --hard && git -C $SRC clean -fdq; fi
-  git -C $REPO submodule update --init pyodide
+  git -C $REPO submodule update --init --depth 1 pyodide
   echo "applying patches"
   out=$(git -C $SRC apply -v $REPO/patches/*.patch 2>&1) || { echo "$out"; exit 1; }
   echo "$out"
