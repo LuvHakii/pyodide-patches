@@ -1,8 +1,8 @@
 diff --git a/src/js/load-package.ts b/src/js/load-package.ts
-index 993be8c6..101fbe19 100644
+index ebb37a0..8e1c49b 100644
 --- a/src/js/load-package.ts
 +++ b/src/js/load-package.ts
-@@ -257,28 +257,30 @@ export class PackageManager {
+@@ -258,28 +258,30 @@ export class PackageManager {
        // If uri is from the default channel, we assume it was added as a
        // dependency, which was previously overridden.
        if (loadedChannel === channel || channel === this.defaultChannel) {
@@ -44,7 +44,7 @@ index 993be8c6..101fbe19 100644
        for (const [_, pkg] of toLoad) {
          if (this.getLoadedPackageChannel(pkg.name)) {
            // Handle the race condition where the package was loaded between when
-@@ -301,19 +303,19 @@ export class PackageManager {
+@@ -302,19 +304,19 @@ export class PackageManager {
        );
  
        if (loadedPackageData.size > 0) {
@@ -74,7 +74,7 @@ index 993be8c6..101fbe19 100644
        }
  
        // We have to invalidate Python's import caches, or it won't
-@@ -392,9 +394,10 @@ export class PackageManager {
+@@ -400,9 +402,10 @@ export class PackageManager {
        const channel = name;
  
        if (toLoad.has(pkgname) && toLoad.get(pkgname)!.channel !== channel) {
@@ -88,7 +88,7 @@ index 993be8c6..101fbe19 100644
          continue;
        }
        toLoad.set(pkgname, {
-@@ -474,15 +477,17 @@ export class PackageManager {
+@@ -482,15 +485,17 @@ export class PackageManager {
          throw e;
        }
      }
@@ -112,7 +112,7 @@ index 993be8c6..101fbe19 100644
      await nodeFsPromisesMod.writeFile(uri, binary);
      return binary;
    }
-@@ -636,6 +641,18 @@ export class PackageManager {
+@@ -644,6 +649,18 @@ export class PackageManager {
    public logStderr(message: string) {
      this.stderr(message);
    }
