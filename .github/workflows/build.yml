@@ -3,10 +3,6 @@ name: build
 on:
   workflow_dispatch:
     inputs:
-      pyodide_rev:
-        description: "pyodide/pyodide tag/branch/commit to build against"
-        type: string
-        default: 314.0.7
       release:
         description: "Publish release <yyyymmdd-hhmm> UTC. Off = dry run, artifact only, 7 days."
         type: boolean
@@ -20,8 +16,6 @@ permissions:
   contents: write
 
 env:
-  ROOT: /home/runner/pyodide-build
-  PYODIDE_REV: ${{ inputs.pyodide_rev }}
   EMSDK_NUM_CORES: 3
   EMCC_CORES: 3
   CCACHE_DIR: /tmp/ccache
@@ -31,6 +25,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: pin
+        id: pin
+        run: |
+          SHA=$(git rev-parse HEAD:pyodide)
+          TAG=$(git ls-remote --tags https://github.com/pyodide/pyodide.git | grep "^$SHA" | cut -f2 | sed 's|refs/tags/||; s|\^{}$||' | tail -1 || true)
+          if [ -z "$TAG" ]; then echo "pinned pyodide $SHA is not a release tag; omni needs one for the CDN wheel URL"; exit 1; fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "rev=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: install system dependencies
         run: |
@@ -51,35 +56,28 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ env.ROOT }}/pyodide
+            pyodide
             /tmp/ccache
-          key: pyodide-${{ inputs.pyodide_rev }}-${{ hashFiles('scripts/setup.sh', 'patches/*.patch') }}
-
-      - name: setup
-        run: bash scripts/setup.sh
+          key: pyodide-${{ steps.pin.outputs.sha }}-${{ hashFiles('patches/*.patch') }}
 
       - name: install python
         run: |
-          PYVERSION=$(git -C $ROOT/pyodide grep 'export PYVERSION ?=' Makefile.envs | cut -d' ' -f4)
-          uv venv --seed --python "$PYVERSION" $ROOT/.venv
-          echo "VIRTUAL_ENV=$ROOT/.venv" >> "$GITHUB_ENV"
-          echo "$ROOT/.venv/bin" >> "$GITHUB_PATH"
-          $ROOT/.venv/bin/python -m pip install -r $ROOT/pyodide/requirements.txt
+          PYVERSION=$(git -C pyodide grep 'export PYVERSION ?=' Makefile.envs | cut -d' ' -f4)
+          uv venv --seed --python "$PYVERSION" $RUNNER_TEMP/venv
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/venv" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          $RUNNER_TEMP/venv/bin/python -m pip install -r pyodide/requirements.txt
 
       - name: build
         run: bash scripts/build.sh
 
       - name: stage release
-        id: v
         run: |
-          source scripts/common.sh
           mkdir -p release
-          cp $SRC/dist/pyodide.mjs $SRC/dist/pyodide.asm.mjs $SRC/dist/pyodide.asm.wasm $SRC/dist/pyodide.d.ts release/
-          PYODIDE_COMMIT=$(git -C $SRC rev-parse HEAD)
-          PATCHES=$(basename -a $REPO/patches/*.patch | jq -R . | jq -s .)
+          cp pyodide/dist/{pyodide.mjs,pyodide.asm.mjs,pyodide.asm.wasm,pyodide.d.ts} release/
+          PATCHES=$(basename -a patches/*.patch | jq -R . | jq -s .)
           printf '{"pyodideRev":"%s","pyodideBaseCommit":"%s","patches":%s}' \
-            "$PYODIDE_REV" "$PYODIDE_COMMIT" "$PATCHES" > release/versions.json
-          echo "pyodide_commit=$PYODIDE_COMMIT" >> "$GITHUB_OUTPUT"
+            "${{ steps.pin.outputs.rev }}" "${{ steps.pin.outputs.sha }}" "$PATCHES" > release/versions.json
           ls -la release/
 
       - name: upload dry run
@@ -98,7 +96,7 @@ jobs:
           NOW=$(date -u +%s)
           TAG=$(date -u -d "@$NOW" +%Y%m%d-%H%M)
           NOTES=$(printf 'Pyodide: %s (%s)\nPatches: emitPyodideEvent + asm/wasm loader URL override\n%s\n' \
-            "$PYODIDE_REV" "${{ steps.v.outputs.pyodide_commit }}" "$(date -u -d "@$NOW" +%FT%TZ)")
+            "${{ steps.pin.outputs.rev }}" "${{ steps.pin.outputs.sha }}" "$(date -u -d "@$NOW" +%FT%TZ)")
           gh release create "$TAG" release/* \
             --target "$GITHUB_SHA" \
             --title "$TAG" \

@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -e
 
-source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+SRC=$REPO/pyodide
 
-cd $SRC
-
-if [ ! -f .patched ]; then
+want="$(git -C $REPO rev-parse :pyodide) $(cat $REPO/patches/*.patch | git hash-object --stdin)"
+if [ "$(cat $SRC/.patched 2>/dev/null)" != "$want" ]; then
+  if [ -e $SRC/.git ]; then git -C $SRC reset -q --hard && git -C $SRC clean -fdq; fi
+  git -C $REPO submodule update --init pyodide
   echo "applying patches"
-  out=$(git apply -v $REPO/patches/*.patch 2>&1) || { echo "$out"; exit 1; }
+  out=$(git -C $SRC apply -v $REPO/patches/*.patch 2>&1) || { echo "$out"; exit 1; }
   echo "$out"
   if grep -q offset <<<"$out"; then echo "hunk applied at an offset, regenerate that patch"; exit 1; fi
-  touch .patched
+  echo "$want" > $SRC/.patched
 fi
+
+cd $SRC
 
 echo "building emsdk"
 make -C emsdk
