@@ -33,7 +33,7 @@ jobs:
         run: |
           SHA=$(git rev-parse HEAD:pyodide)
           TAG=$(git ls-remote --tags https://github.com/pyodide/pyodide.git | grep "^$SHA" | cut -f2 | sed 's|refs/tags/||; s|\^{}$||' | tail -1 || true)
-          if [ -z "$TAG" ]; then echo "pinned pyodide $SHA is not a release tag; omni needs one for the CDN wheel URL"; exit 1; fi
+          if [ -z "$TAG" ]; then echo "pinned pyodide $SHA is not a release tag; pyodideRev must name a pyodide release"; exit 1; fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "rev=$TAG" >> "$GITHUB_OUTPUT"
 
