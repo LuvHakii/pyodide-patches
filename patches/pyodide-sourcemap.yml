@@ -1,0 +1,8 @@
+id: sm-off
+language: javascript
+files: [src/js/esbuild.config.shared.mjs]
+metadata: { expect: 1 }
+rule:
+  kind: "true"
+  inside: { kind: pair, has: { field: key, regex: ^sourcemap$ } }
+fix: 'false'

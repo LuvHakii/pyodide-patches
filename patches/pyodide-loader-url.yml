@@ -1,0 +1,255 @@
+id: c-drop-esp-import
+language: typescript
+files: [src/js/compat.ts]
+metadata: { expect: 1 }
+rule: { kind: import_statement, regex: '^import ErrorStackParser ' }
+fix: ''
+---
+id: c-drop-calcdir
+language: typescript
+files: [src/js/compat.ts]
+metadata: { expect: 1 }
+rule: { kind: export_statement, has: { kind: function_declaration, has: { field: name, regex: ^calculateDirname$ } } }
+fix: ''
+---
+id: c-drop-calcdir-doc
+language: typescript
+files: [src/js/compat.ts]
+metadata: { expect: 1 }
+rule: { kind: comment, regex: Calculate the directory name of the current module }
+fix: ''
+---
+id: es-locateFile
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule:
+  pattern: '(path: string) => config.indexURL + path'
+  inside: { kind: pair, has: { field: key, regex: ^locateFile$ } }
+fix: |-
+  (path: string) => {
+    if (path === "pyodide.asm.wasm") {
+      return config.wasmURL;
+    }
+    throw new Error(`Unexpected call to locateFile("${path}")`);
+  }
+---
+id: es-instantiateWasm-arg
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule: { pattern: getInstantiateWasmFunc(config.indexURL) }
+fix: getInstantiateWasmFunc(config)
+---
+id: es-drop-stdlib-default
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 2 }
+rule:
+  any:
+    - pattern: let stdLibURL;
+    - pattern: 'if (config.stdLibURL != undefined) { $$$ } else { $$$ }'
+  inside: { kind: function_declaration, has: { field: name, regex: ^getFileSystemInitializationFuncs$ }, stopBy: end }
+fix: ''
+---
+id: es-installStdlib-arg
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule: { pattern: installStdlib(stdLibURL) }
+fix: installStdlib(config.stdLibURL)
+---
+id: es-getInstantiateWasmFunc-param
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule:
+  kind: required_parameter
+  regex: '^indexURL: string$'
+  inside: { kind: function_declaration, has: { field: name, regex: ^getInstantiateWasmFunc$ }, stopBy: end }
+fix: 'config: PyodideConfigWithDefaults'
+---
+id: es-wasm-url
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule: { pattern: getBinaryResponse(indexURL + "pyodide.asm.wasm") }
+fix: getBinaryResponse(config.wasmURL)
+---
+id: py-import-calcdir
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule: { kind: import_specifier, regex: ^calculateDirname$ }
+fix: { template: '', expandEnd: { regex: '^,$' } }
+---
+id: py-drop-indexURL-prop
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: property_signature
+  regex: '^indexURL\?: string$'
+  inside: { kind: interface_body, inside: { kind: interface_declaration, has: { field: name, regex: ^PyodideConfig$ } } }
+fix: { template: '', expandEnd: { regex: '^;$' } }
+---
+id: py-drop-indexURL-doc
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  regex: Pyodide will load the main Pyodide runtime
+  precedes: { kind: property_signature, regex: '^indexURL\?' }
+fix: ''
+---
+id: py-doc-cachedir
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  regex: 'Default: same as indexURL'
+  precedes: { kind: property_signature, regex: ^packageCacheDir }
+transform:
+  NEW: { replace: { source: $SELF, replace: '\n *\* *\n *\* Default: same as indexURL', by: '' } }
+fix: $NEW
+---
+id: py-doc-lockfile
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  regex: '\$\{indexURL\}/pyodide-lock'
+  precedes: { kind: property_signature, regex: ^lockFileURL }
+transform:
+  NEW: { replace: { source: $SELF, replace: 'Default: ```\$\{indexURL\}/pyodide-lock\.json```', by: 'Required unless ``lockFileContents`` is provided.' } }
+fix: $NEW
+---
+id: py-doc-stdlib
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  regex: '\$\{indexURL\}/python_stdlib'
+  precedes: { kind: property_signature, regex: ^stdLibURL }
+transform:
+  NEW: { replace: { source: $SELF, replace: 'Default: ```\$\{indexURL\}/python_stdlib\.zip```', by: 'Required.' } }
+fix: $NEW
+---
+id: py-stdlib-prop
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: property_signature
+  regex: '^stdLibURL\?: string$'
+  inside: { kind: interface_body, inside: { kind: interface_declaration, has: { field: name, regex: ^PyodideConfig$ } } }
+fix: |-
+  stdLibURL: string;
+  /**
+   * The URL from which to load the ``pyodide.asm.mjs`` glue script.
+   * Required.
+   */
+  asmURL: string;
+  /**
+   * The URL from which to load the ``pyodide.asm.wasm`` binary.
+   * Required.
+   */
+  wasmURL: string
+---
+id: py-options-no-default
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 2 }
+rule:
+  kind: required_parameter
+  regex: '^options: PyodideConfig = \{\}$'
+  inside: { kind: function_declaration, has: { field: name, regex: ^(initializeConfiguration|loadPyodide)$ }, stopBy: end }
+fix: 'options: PyodideConfig'
+---
+id: py-require-lockfile
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'let indexURL = $X;' }
+fix: |-
+  if (!options.lockFileContents && !options.lockFileURL) {
+    throw new Error("Must pass either lockFileContents or lockFileURL");
+  }
+---
+id: py-drop-indexURL-calc
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 3 }
+rule:
+  any:
+    - pattern: 'indexURL = withTrailingSlash($X);'
+    - { kind: comment, regex: A relative indexURL causes havoc }
+    - pattern: 'options.indexURL = indexURL;'
+fix: ''
+---
+id: py-lockfileurl
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'options.lockFileURL ?? indexURL + "pyodide-lock.json"' }
+fix: options.lockFileURL!
+---
+id: py-defaultConfig-partial
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: type_identifier
+  regex: ^PyodideConfig$
+  inside: { kind: type_annotation, inside: { kind: variable_declarator, has: { field: name, regex: ^defaultConfig$ } } }
+fix: Partial<PyodideConfig>
+---
+id: py-drop-scriptSrc
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'const scriptSrc = $X;' }
+fix: ''
+---
+id: py-loadScript-asmURL
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule: { pattern: loadScript(scriptSrc) }
+fix: loadScript(config.asmURL)
+---
+id: py-version-msg
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: string_fragment
+  pattern: $SELF
+  regex: "'indexURL' parameter passed to loadPyodide"
+transform:
+  NEW: { replace: { source: $SELF, replace: "'indexURL' parameter", by: "'asmURL'/'wasmURL' parameters" } }
+fix: $NEW
+---
+id: py-doc-loadPyodide-example
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  not: { regex: 'asmURL:' }
+  precedes: { kind: export_statement, has: { kind: function_declaration, has: { field: name, regex: ^loadPyodide$ } } }
+transform:
+  NEW:
+    replace:
+      source: $SELF
+      replace: '(\* +const pyodide = await loadPyodide\(\{\n)'
+      by: "${1} *     asmURL: \"https://example.com/pyodide.asm.mjs\",\n *     wasmURL: \"https://example.com/pyodide.asm.wasm\",\n *     stdLibURL: \"https://example.com/python_stdlib.zip\",\n *     lockFileURL: \"https://example.com/pyodide-lock.json\",\n"
+fix: $NEW

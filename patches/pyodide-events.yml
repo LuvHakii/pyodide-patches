@@ -1,0 +1,148 @@
+id: ev-already-loaded
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'this.logStdout(`${$N} already loaded from ${$C}`)' }
+fix: |-
+  this.emitEvent("pkg:already_loaded", {
+    pkg: $N,
+    channel: $C,
+  })
+---
+id: ev-url-mismatch
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: this.logStderr($M) }
+constraints: { M: { regex: '^`URI mismatch' } }
+fix: |-
+  this.emitEvent("pkg:url_mismatch", {
+    pkg: name,
+    prevChannel: loadedChannel,
+    channel,
+  })
+---
+id: ev-up-to-date
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: this.logStdout("No new packages to load") }
+fix: this.emitEvent("pkgs:up_to_date")
+---
+id: ev-drop-packageNames
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: const packageNames = $X }
+fix: ''
+---
+id: ev-load
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'this.logStdout(`Loading ${packageNames}`)' }
+fix: |-
+  this.emitEvent("pkgs:load", {
+    pkgs: Array.from(toLoad.values(), ({ name }) => name).sort(),
+  })
+---
+id: ev-drop-successNames
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: const successNames = $X }
+fix: ''
+---
+id: ev-loaded
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'this.logStdout(`Loaded ${successNames}`)' }
+fix: |-
+  this.emitEvent("pkgs:loaded", {
+    pkgs: Array.from(loadedPackageData, ({ name }) => name).sort(),
+  })
+---
+id: ev-drop-failed-logs
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 2 }
+rule:
+  any:
+    - pattern: const failedNames = $X
+    - pattern: 'this.logStdout(`Failed to load ${failedNames}`);'
+fix: ''
+---
+id: ev-failed
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'for (const [name, err] of failed) { $$$ }' }
+fix: |-
+  this.emitEvent("pkgs:failed", {
+    pkgs: Array.from(failed.keys()).sort(),
+    errors: Array.from(failed, ([name, err]) => ({
+      name,
+      message: err.message,
+    })),
+  });
+---
+id: ev-channel-conflict
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: this.logStderr($M) }
+constraints: { M: { regex: '^`Loading same package' } }
+fix: |-
+  this.emitEvent("pkg:channel_conflict", {
+    pkg: pkgname,
+    channels: [channel, toLoad.get(pkgname)!.channel],
+  })
+---
+id: ev-remote-attempt
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: this.logStdout($M) }
+constraints: { M: { regex: "^`Didn't find package" } }
+fix: |-
+  this.emitEvent("pkg:remote_load_attempt", {
+    pkg: pkg.name,
+    fileName: fileName,
+  })
+---
+id: ev-remote-success
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule: { pattern: this.logStdout($M) }
+constraints: { M: { regex: '^`Package \$\{fileName\} loaded from' } }
+fix: |-
+  this.emitEvent("pkg:remote_load_success", {
+    pkg: pkg.name,
+    fileName: fileName,
+  })
+---
+id: ev-add-emitEvent
+language: typescript
+files: [src/js/load-package.ts]
+metadata: { expect: 1 }
+rule:
+  kind: method_definition
+  pattern: $SELF
+  has: { field: name, regex: ^logStderr$ }
+  inside: { kind: class_body, inside: { kind: class_declaration, has: { field: name, regex: ^PackageManager$ } } }
+fix: |-
+  $SELF
+
+  public emitEvent(type: string, ctx?: any) {
+    if ("dispatchEvent" in globalThis)
+      dispatchEvent(
+        new CustomEvent("pyodide:pm", {
+          detail: {
+            type,
+            ...ctx,
+          },
+        }),
+      );
+  }

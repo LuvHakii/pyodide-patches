@@ -58,7 +58,7 @@ jobs:
           path: |
             pyodide
             /tmp/ccache
-          key: pyodide-${{ steps.pin.outputs.sha }}-${{ hashFiles('patches/*.patch') }}
+          key: pyodide-${{ steps.pin.outputs.sha }}-${{ hashFiles('patches/*', 'scripts/apply-rules.sh') }}
 
       - name: install python
         run: |
@@ -75,7 +75,7 @@ jobs:
         run: |
           mkdir -p release
           cp pyodide/dist/{pyodide.mjs,pyodide.asm.mjs,pyodide.asm.wasm,pyodide.d.ts} release/
-          PATCHES=$(basename -a patches/*.patch | jq -R . | jq -s .)
+          PATCHES=$(basename -a patches/* | jq -R . | jq -s .)
           printf '{"pyodideRev":"%s","pyodideBaseCommit":"%s","patches":%s}' \
             "${{ steps.pin.outputs.rev }}" "${{ steps.pin.outputs.sha }}" "$PATCHES" > release/versions.json
           ls -la release/
