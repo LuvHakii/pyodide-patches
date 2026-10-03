@@ -40,24 +40,21 @@ jobs:
       - name: install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            build-essential git xxd \
-            ccache autoconf automake libtool libltdl-dev \
-            pkg-config texinfo bison ninja-build
+          sudo apt-get install -y xxd libltdl-dev
 
-      - uses: actions/setup-node@v4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2.24
         with:
-          node-version: "24"
+          key: pyodide-${{ steps.pin.outputs.sha }}
+          max-size: 2G
 
       - name: install uv
         uses: astral-sh/setup-uv@v5
 
-      - name: cache source + ccache
+      - name: cache source
         uses: actions/cache@v4
         with:
-          path: |
-            pyodide
-            /tmp/ccache
+          path: pyodide
           key: pyodide-${{ steps.pin.outputs.sha }}-${{ hashFiles('patches/*', 'scripts/apply-rules.sh') }}
 
       - name: install python
