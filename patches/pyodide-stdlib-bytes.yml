@@ -1,0 +1,71 @@
+id: sb-installStdlib-param
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule:
+  kind: required_parameter
+  regex: '^stdlibURL: string$'
+  inside: { kind: function_declaration, has: { field: name, regex: ^installStdlib$ }, stopBy: end }
+fix: 'source: string | Uint8Array'
+---
+id: sb-installStdlib-promise
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule:
+  pattern: loadBinaryFile(stdlibURL)
+  inside: { kind: function_declaration, has: { field: name, regex: ^installStdlib$ }, stopBy: end }
+fix: 'typeof source === "string" ? loadBinaryFile(source) : Promise.resolve(source)'
+---
+id: sb-installStdlib-canOwn
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule: { pattern: 'Module.FS.writeFile(`/lib/python${pymajor}${pyminor}.zip`, stdlib)' }
+fix: 'Module.FS.writeFile(`/lib/python${pymajor}${pyminor}.zip`, stdlib, { canOwn: true })'
+---
+id: sb-installStdlib-arg
+language: typescript
+files: [src/js/emscripten-settings.ts]
+metadata: { expect: 1 }
+rule: { pattern: installStdlib(config.stdLibURL) }
+fix: installStdlib(config.stdLib)
+---
+id: sb-config-doc
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  regex: 'python_stdlib\.zip'
+  precedes: { kind: property_signature, regex: '^stdLibURL: string$' }
+transform:
+  NEW:
+    replace:
+      source: $SELF
+      replace: 'The URL from which to load the standard library ``python_stdlib.zip``\n   \* file\. This URL includes the most of the Python standard library\.'
+      by: "The standard library ``python_stdlib.zip``: the URL to load it from, or its\n   * contents. Bytes are written to the file system without a copy, so a view\n   * of a ``SharedArrayBuffer`` stays shared with the caller."
+fix: $NEW
+---
+id: sb-config-prop
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: property_signature
+  regex: '^stdLibURL: string$'
+  inside: { kind: interface_body, inside: { kind: interface_declaration, has: { field: name, regex: ^PyodideConfig$ } } }
+fix: 'stdLib: string | Uint8Array'
+---
+id: sb-example
+language: typescript
+files: [src/js/pyodide.ts]
+metadata: { expect: 1 }
+rule:
+  kind: comment
+  pattern: $SELF
+  regex: 'stdLibURL:'
+transform:
+  NEW: { replace: { source: $SELF, replace: 'stdLibURL:', by: 'stdLib:' } }
+fix: $NEW
